@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Simulador de Investimentos</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center px-4">
+  <div class="bg-white shadow-xl rounded-2xl p-8 max-w-2xl w-full">
+    <h1 class="text-2xl font-bold mb-6 text-center text-gray-800">📊 Simulador de Investimentos</h1>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700">Tipo de Investimento</label>
+        <select id="tipoInvestimento" class="w-full p-2 border rounded-xl">
+          <option value="Tesouro">Tesouro Direto</option>
+          <option value="CDB">CDB</option>
+          <option value="LCI_LCA">LCI / LCA</option>
+          <option value="Acoes">Ações</option>
+          <option value="Fundo">Fundo de Investimento</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-gray-700">Valor Inicial (R$)</label>
+        <input type="number" id="valorInicial" class="w-full p-2 border rounded-xl" />
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-gray-700">Aporte Mensal (R$)</label>
+        <input type="number" id="aporteMensal" class="w-full p-2 border rounded-xl" />
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-gray-700">Taxa de Juros Mensal (%)</label>
+        <input type="number" step="0.01" id="taxaJuros" class="w-full p-2 border rounded-xl" />
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-gray-700">Tempo (meses)</label>
+        <input type="number" id="tempo" class="w-full p-2 border rounded-xl" />
+      </div>
+
+      <div class="flex items-end">
+        <button onclick="calcularInvestimento()" class="bg-blue-600 text-white w-full py-2 rounded-xl hover:bg-blue-700 transition">
+          Calcular
+        </button>
+      </div>
+    </div>
+
+    <div id="resultado" class="mt-6 text-center text-gray-800 font-medium"></div>
+    
+    <canvas id="grafico" class="mt-8"></canvas>
+  </div>
+
+  <script>
+    let grafico;
+
+    function calcularIR(meses, tipo) {
+      // Para ações: IR fixo de 15%
+      if (tipo === "Acoes") return 0.15;
+
+      // IR regressivo para Tesouro, CDB, Fundos
+      if (meses <= 6) return 0.225;
+      if (meses <= 12) return 0.20;
+      if (meses <= 24) return 0.175;
+      return 0.15;
+    }
+
+    function calcularInvestimento() {
+      const tipo = document.getElementById("tipoInvestimento").value;
+      const P = parseFloat(document.getElementById("valorInicial").value) || 0;
+      const PMT = parseFloat(document.getElementById("aporteMensal").value) || 0;
+      const i = (parseFloat(document.getElementById("taxaJuros").value) || 0) / 100;
+      const n = parseInt(document.getElementById("tempo").value) || 0;
+
+      let saldo = P;
+      const historico = [saldo];
+      let totalAportado = P;
+
+      for (let mes = 1; mes <= n; mes++) {
+        saldo = saldo * (1 + i) + PMT;
+        historico.push(saldo);
+        totalAportado += PMT;
+      }
+
+      let montanteBruto = saldo;
+      let ir = 0;
+
+      // Tipos isentos de IR
+      const isento = (tipo === "LCI_LCA");
+
+      // Tipos com IR: Tesouro, CDB, Fundo, Ações
+      if (!isento) {
+        const lucro = montanteBruto - totalAportado;
+        const taxaIR = calcularIR(n, tipo);
+        ir = lucro * taxaIR;
+      }
+
+      const montanteLiquido = montanteBruto - ir;
+      const juros = montanteLiquido - totalAportado;
+
+      document.getElementById("resultado").innerHTML = `
+        <p><strong>📦 Montante Final (líquido):</strong> R$ ${montanteLiquido.toFixed(2)}</p>
+        <p><strong>💰 Total Investido:</strong> R$ ${totalAportado.toFixed(2)}</p>
+        <p><strong>📈 Juros Ganhos:</strong> R$ ${juros.toFixed(2)}</p>
+        ${ir > 0 ? `<p><strong>💸 IR descontado:</strong> R$ ${ir.toFixed(2)}</p>` : ""}
+      `;
+
+      desenharGrafico(historico);
+    }
+
+    function desenharGrafico(dados) {
+      const ctx = document.getElementById("grafico").getContext("2d");
+      const labels = Array.from({length: dados.length}, (_, i) => `${i}º mês`);
+
+      if (grafico) grafico.destroy();
+
+      grafico = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Evolução do Investimento',
+            data: dados,
+            borderColor: '#2563eb',
+            backgroundColor: 'rgba(37, 99, 235, 0.1)',
+            fill: true,
+            tension: 0.2
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { display: true },
+            tooltip: { mode: 'index', intersect: false }
+          },
+          interaction: {
+            mode: 'index',
+            intersect: false
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: {
+                callback: value => `R$ ${value.toFixed(0)}`
+              }
+            }
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>
