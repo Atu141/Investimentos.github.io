@@ -1,155 +1,221 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Simulador de Investimentos</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calculadora de Investimentos</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-100 min-h-screen flex items-center justify-center px-4">
-  <div class="bg-white shadow-xl rounded-2xl p-8 max-w-2xl w-full">
-    <h1 class="text-2xl font-bold mb-6 text-center text-gray-800">📊 Simulador de Investimentos</h1>
+<body class="bg-gray-50 text-gray-800">
+  <div class="max-w-5xl mx-auto p-4">
+    <h1 class="text-3xl font-bold mb-6">Calculadora de Investimentos</h1>
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div>
-        <label class="block text-sm font-medium text-gray-700">Tipo de Investimento</label>
-        <select id="tipoInvestimento" class="w-full p-2 border rounded-xl">
-          <option value="Tesouro">Tesouro Direto</option>
-          <option value="CDB">CDB</option>
-          <option value="LCI_LCA">LCI / LCA</option>
-          <option value="Acoes">Ações</option>
-          <option value="Fundo">Fundo de Investimento</option>
-        </select>
+        <label for="aporteInicial" class="block text-sm font-medium text-gray-700">Aporte inicial (R$)</label>
+        <input type="number" id="aporteInicial" class="border rounded-xl p-2 w-full" value="0" />
       </div>
-
       <div>
-        <label class="block text-sm font-medium text-gray-700">Valor Inicial (R$)</label>
-        <input type="number" id="valorInicial" class="w-full p-2 border rounded-xl" />
+        <label for="aporte" class="block text-sm font-medium text-gray-700">Aporte mensal (R$)</label>
+        <input type="number" id="aporte" class="border rounded-xl p-2 w-full" value="100" />
       </div>
-
       <div>
-        <label class="block text-sm font-medium text-gray-700">Aporte Mensal (R$)</label>
-        <input type="number" id="aporteMensal" class="w-full p-2 border rounded-xl" />
+        <label for="taxa" class="block text-sm font-medium text-gray-700">Taxa de juros anual (%)</label>
+        <input type="number" id="taxa" class="border rounded-xl p-2 w-full" value="10" />
       </div>
-
       <div>
-        <label class="block text-sm font-medium text-gray-700">Taxa de Juros Mensal (%)</label>
-        <input type="number" step="0.01" id="taxaJuros" class="w-full p-2 border rounded-xl" />
+        <label for="periodo" class="block text-sm font-medium text-gray-700">Período (meses)</label>
+        <input type="number" id="periodo" class="border rounded-xl p-2 w-full" value="12" />
       </div>
-
       <div>
-        <label class="block text-sm font-medium text-gray-700">Tempo (meses)</label>
-        <input type="number" id="tempo" class="w-full p-2 border rounded-xl" />
-      </div>
-
-      <div class="flex items-end">
-        <button onclick="calcularInvestimento()" class="bg-blue-600 text-white w-full py-2 rounded-xl hover:bg-blue-700 transition">
-          Calcular
-        </button>
+        <label for="inflacao" class="block text-sm font-medium text-gray-700">Inflação mensal (%)</label>
+        <input type="number" step="0.01" id="inflacao" value="0" class="border rounded-xl p-2 w-full" />
       </div>
     </div>
 
-    <div id="resultado" class="mt-6 text-center text-gray-800 font-medium"></div>
-    
-    <canvas id="grafico" class="mt-8"></canvas>
+    <div class="mt-4 flex flex-wrap gap-4">
+      <button onclick="simular()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl">Simular</button>
+      <button onclick="adicionarCenario()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl">Adicionar Cenário</button>
+      <button onclick="exportarPDF()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl">Exportar PDF</button>
+    </div>
+
+    <div class="mt-6" id="resultado"></div>
+
+    <div class="mt-4 flex justify-end">
+      <label class="mr-2 font-medium text-gray-700">Tipo de Gráfico:</label>
+      <select id="tipoGrafico" onchange="compararCenarios()" class="border rounded-xl p-2">
+        <option value="line">Linha</option>
+        <option value="bar">Barra</option>
+        <option value="pie">Pizza</option>
+        <option value="radar">Radar</option>
+      </select>
+    </div>
+
+    <canvas id="grafico" class="mt-6"></canvas>
   </div>
 
   <script>
+    let cenarios = [];
     let grafico;
 
-    function calcularIR(meses, tipo) {
-      // Para ações: IR fixo de 15%
-      if (tipo === "Acoes") return 0.15;
-
-      // IR regressivo para Tesouro, CDB, Fundos
-      if (meses <= 6) return 0.225;
-      if (meses <= 12) return 0.20;
-      if (meses <= 24) return 0.175;
-      return 0.15;
+    async function carregarInflacaoAtual() {
+      const url = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados/ultimos/1?formato=json";
+      try {
+        const resposta = await fetch(url);
+        const dados = await resposta.json();
+        const inflacao = parseFloat(dados[0].valor.replace(",", ".")) / 100;
+        document.getElementById("inflacao").value = (inflacao * 100).toFixed(2);
+      } catch (erro) {
+        console.error("Erro ao buscar inflação do BACEN:", erro);
+      }
     }
 
-    function calcularInvestimento() {
-      const tipo = document.getElementById("tipoInvestimento").value;
-      const P = parseFloat(document.getElementById("valorInicial").value) || 0;
-      const PMT = parseFloat(document.getElementById("aporteMensal").value) || 0;
-      const i = (parseFloat(document.getElementById("taxaJuros").value) || 0) / 100;
-      const n = parseInt(document.getElementById("tempo").value) || 0;
+    document.addEventListener("DOMContentLoaded", () => carregarInflacaoAtual());
 
-      let saldo = P;
-      const historico = [saldo];
-      let totalAportado = P;
+    function formatarBRL(valor) {
+      return new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL'
+      }).format(valor);
+    }
 
-      for (let mes = 1; mes <= n; mes++) {
-        saldo = saldo * (1 + i) + PMT;
-        historico.push(saldo);
-        totalAportado += PMT;
+    function simular() {
+      cenarios = [];
+      adicionarCenario();
+    }
+
+    function adicionarCenario() {
+      const aporteInicial = parseFloat(document.getElementById("aporteInicial").value || 0);
+      const aporte = parseFloat(document.getElementById("aporte").value || 0);
+      const taxaAnual = parseFloat(document.getElementById("taxa").value || 0);
+      const periodo = parseInt(document.getElementById("periodo").value || 0);
+      const inflacaoMensal = parseFloat(document.getElementById("inflacao").value || 0) / 100;
+
+      const taxaMensal = Math.pow(1 + taxaAnual / 100, 1 / 12) - 1;
+      const taxaReal = ((1 + taxaMensal) / (1 + inflacaoMensal)) - 1;
+
+      let montante = aporteInicial;
+      let investido = aporteInicial;
+      let dados = [montante];
+
+      for (let i = 1; i <= periodo; i++) {
+        montante = montante * (1 + taxaReal) + aporte;
+        investido += aporte;
+        dados.push(montante);
       }
 
-      let montanteBruto = saldo;
+      const juros = montante - investido;
       let ir = 0;
+      if (periodo < 6) ir = juros * 0.225;
+      else if (periodo < 12) ir = juros * 0.20;
+      else if (periodo < 24) ir = juros * 0.175;
+      else ir = juros * 0.15;
 
-      // Tipos isentos de IR
-      const isento = (tipo === "LCI_LCA");
+      const resultado = {
+        montante,
+        investido,
+        juros,
+        ir,
+        dados
+      };
 
-      // Tipos com IR: Tesouro, CDB, Fundo, Ações
-      if (!isento) {
-        const lucro = montanteBruto - totalAportado;
-        const taxaIR = calcularIR(n, tipo);
-        ir = lucro * taxaIR;
-      }
-
-      const montanteLiquido = montanteBruto - ir;
-      const juros = montanteLiquido - totalAportado;
-
-      document.getElementById("resultado").innerHTML = `
-        <p><strong>📦 Montante Final (líquido):</strong> R$ ${montanteLiquido.toFixed(2)}</p>
-        <p><strong>💰 Total Investido:</strong> R$ ${totalAportado.toFixed(2)}</p>
-        <p><strong>📈 Juros Ganhos:</strong> R$ ${juros.toFixed(2)}</p>
-        ${ir > 0 ? `<p><strong>💸 IR descontado:</strong> R$ ${ir.toFixed(2)}</p>` : ""}
-      `;
-
-      desenharGrafico(historico);
+      cenarios.push(resultado);
+      exibirResultados();
+      compararCenarios();
     }
 
-    function desenharGrafico(dados) {
-      const ctx = document.getElementById("grafico").getContext("2d");
-      const labels = Array.from({length: dados.length}, (_, i) => `${i}º mês`);
+    function exibirResultados() {
+      const html = cenarios.map((r, i) => `
+        <div class="bg-gray-100 p-4 rounded-xl">
+          <h3 class="font-semibold mb-2">Cenário ${i + 1}</h3>
+          <p>💼 <strong>Montante:</strong> ${formatarBRL(r.montante)}</p>
+          <p>💰 <strong>Investido:</strong> ${formatarBRL(r.investido)}</p>
+          <p>📈 <strong>Juros:</strong> ${formatarBRL(r.juros)}</p>
+          ${r.ir > 0 ? `<p>💸 <strong>IR:</strong> ${formatarBRL(r.ir)}</p>` : ''}
+        </div>
+      `).join('');
+      document.getElementById("resultado").innerHTML = html;
+    }
 
+    function compararCenarios() {
+      const tipo = document.getElementById("tipoGrafico").value;
+      const ctx = document.getElementById("grafico").getContext("2d");
       if (grafico) grafico.destroy();
 
-      grafico = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: labels,
-          datasets: [{
-            label: 'Evolução do Investimento',
-            data: dados,
-            borderColor: '#2563eb',
-            backgroundColor: 'rgba(37, 99, 235, 0.1)',
-            fill: true,
-            tension: 0.2
-          }]
-        },
-        options: {
-          responsive: true,
-          plugins: {
-            legend: { display: true },
-            tooltip: { mode: 'index', intersect: false }
+      if (tipo === 'pie') {
+        grafico = new Chart(ctx, {
+          type: 'pie',
+          data: {
+            labels: cenarios.map((_, i) => `Cenário ${i + 1}`),
+            datasets: [{
+              label: 'Montante Final',
+              data: cenarios.map(c => c.montante),
+              backgroundColor: ['#2563eb', '#16a34a', '#facc15', '#ec4899']
+            }]
           },
-          interaction: {
-            mode: 'index',
-            intersect: false
-          },
-          scales: {
-            y: {
-              beginAtZero: true,
-              ticks: {
-                callback: value => `R$ ${value.toFixed(0)}`
-              }
-            }
+          options: {
+            responsive: true
           }
-        }
+        });
+      } else {
+        const labels = Array.from({ length: Math.max(...cenarios.map(c => c.dados.length)) }, (_, i) => `${i}º mês`);
+        grafico = new Chart(ctx, {
+          type: tipo,
+          data: {
+            labels,
+            datasets: cenarios.map((c, i) => ({
+              label: `Cenário ${i + 1}`,
+              data: c.dados,
+              borderColor: ['#2563eb', '#16a34a', '#facc15', '#ec4899'][i % 4],
+              backgroundColor: ['#2563eb33', '#16a34a33', '#facc1533', '#ec489933'][i % 4],
+              fill: tipo !== 'radar',
+              tension: 0.3
+            }))
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: { display: true },
+              tooltip: { mode: 'index', intersect: false }
+            },
+            interaction: { mode: 'index', intersect: false },
+            scales: tipo !== 'radar' && tipo !== 'pie' ? {
+              y: {
+                beginAtZero: true,
+                ticks: {
+                  callback: value => formatarBRL(value)
+                }
+              }
+            } : {}
+          }
+        });
+      }
+    }
+
+    function exportarPDF() {
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF();
+
+      pdf.setFontSize(16);
+      pdf.text("Simulação de Investimentos", 10, 10);
+      cenarios.forEach((c, i) => {
+        const offset = 20 + i * 30;
+        pdf.setFontSize(12);
+        pdf.text(`Cenário ${i + 1}`, 10, offset);
+        pdf.text(`Montante: ${formatarBRL(c.montante)}`, 10, offset + 6);
+        pdf.text(`Investido: ${formatarBRL(c.investido)}`, 10, offset + 12);
+        pdf.text(`Juros: ${formatarBRL(c.juros)}`, 10, offset + 18);
+        if (c.ir > 0) pdf.text(`IR: ${formatarBRL(c.ir)}`, 10, offset + 24);
+      });
+
+      html2canvas(document.getElementById("grafico")).then(canvas => {
+        const imgData = canvas.toDataURL("image/png");
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 10, 10, 180, 100);
+        pdf.save("simulacao-investimentos.pdf");
       });
     }
   </script>
